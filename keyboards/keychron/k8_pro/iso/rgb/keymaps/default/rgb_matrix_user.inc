@@ -48,7 +48,7 @@ static bool keypress_splash(effect_params_t* params) {
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
     if (record->event.pressed) {
         // Find LED index for this key
-        uint8_t led_index = led_index_at(record->event.key.row, record->event.key.col);
+        uint8_t led_index = g_led_config.matrix[record->event.key.row][record->event.key.col];
         if (led_index != NO_LED) {
             splash_center = led_index;
             splash_radius = 0;
