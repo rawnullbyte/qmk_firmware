@@ -6,7 +6,6 @@ RGB_MATRIX_EFFECT(keypress_splash)
 #ifdef RGB_MATRIX_CUSTOM_EFFECT_IMPLS
 #include "rgb_matrix.h"
 
-// State for splash animation
 static uint8_t  splash_radius  = 0;
 static uint8_t  splash_center  = 0;
 static bool     splash_active  = false;
@@ -20,7 +19,7 @@ static bool keypress_splash(effect_params_t* params) {
     if (splash_active && timer_elapsed32(splash_timer) > (255 - rgb_matrix_config.speed)) {
         splash_timer = timer_read32();
         splash_radius++;
-        if (splash_radius > RGB_MATRIX_LED_COUNT / 2) {
+        if (splash_radius > 40) { // max radius in LED coordinate space
             splash_active = false; // stop splash when it fades out
         }
     }
@@ -28,7 +27,12 @@ static bool keypress_splash(effect_params_t* params) {
     for (uint8_t i = led_min; i < led_max; i++) {
         uint8_t brightness = 0;
         if (splash_active) {
-            int16_t distance = abs((int16_t)i - (int16_t)splash_center);
+            // Get LED coordinates
+            int16_t dx = g_led_config.point[i].x - g_led_config.point[splash_center].x;
+            int16_t dy = g_led_config.point[i].y - g_led_config.point[splash_center].y;
+            uint16_t distance = sqrt16(dx * dx + dy * dy);
+
+            // Light LEDs near the current radius
             if (abs(distance - splash_radius) < 3) {
                 brightness = 255 - (abs(distance - splash_radius) * 80);
             }
