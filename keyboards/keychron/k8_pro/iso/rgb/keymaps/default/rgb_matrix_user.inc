@@ -15,30 +15,26 @@ static uint32_t splash_timer   = 0;
 static bool keypress_splash(effect_params_t* params) {
     RGB_MATRIX_USE_LIMITS(led_min, led_max);
 
-    // Expand radius over time if splash is active
     if (splash_active && timer_elapsed32(splash_timer) > (255 - rgb_matrix_config.speed)) {
         splash_timer = timer_read32();
         splash_radius++;
         if (splash_radius > 40) { // max radius in LED coordinate space
-            splash_active = false; // stop splash when it fades out
+            splash_active = false;
         }
     }
 
     for (uint8_t i = led_min; i < led_max; i++) {
         uint8_t brightness = 0;
         if (splash_active) {
-            // Get LED coordinates
             int16_t dx = g_led_config.point[i].x - g_led_config.point[splash_center].x;
             int16_t dy = g_led_config.point[i].y - g_led_config.point[splash_center].y;
             uint16_t distance = sqrt16(dx * dx + dy * dy);
 
-            // Light LEDs near the current radius
             if (abs(distance - splash_radius) < 3) {
                 brightness = 255 - (abs(distance - splash_radius) * 80);
             }
         }
-        // Cyan splash color
-        rgb_matrix_set_color(i, 0x00, brightness, brightness);
+        rgb_matrix_set_color(i, 0x00, brightness, brightness); // cyan splash
     }
 
     return rgb_matrix_check_finished_leds(led_max);
@@ -47,13 +43,16 @@ static bool keypress_splash(effect_params_t* params) {
 // Hook into keypresses to trigger splash
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
     if (record->event.pressed) {
-        // Start a new splash centered on the pressed key’s LED index
-        splash_center = record->event.key.row * MATRIX_COLS + record->event.key.col;
-        splash_radius = 0;
-        splash_active = true;
-        splash_timer  = timer_read32();
+        // Find LED index for this key
+        uint8_t led_index = g_led_config.key_to_led[record->event.key.row][record->event.key.col];
+        if (led_index != NO_LED) {
+            splash_center = led_index;
+            splash_radius = 0;
+            splash_active = true;
+            splash_timer  = timer_read32();
+        }
     }
-    return true; // let QMK handle the key normally
+    return true;
 }
 
 #endif // RGB_MATRIX_CUSTOM_EFFECT_IMPLS
