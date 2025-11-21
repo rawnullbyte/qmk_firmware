@@ -3,6 +3,7 @@
 # Usefull commands:
 Flash:
 `sudo qmk flash -kb keychron/k8_pro/iso/rgb -km default`
+
 Compile:
 `qmk compile -kb keychron/k8_pro/iso/rgb -km via`
 
