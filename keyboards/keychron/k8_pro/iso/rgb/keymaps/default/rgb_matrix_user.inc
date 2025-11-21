@@ -6,6 +6,8 @@ RGB_MATRIX_EFFECT(keypress_splash)
 #include "rgb_matrix.h"
 
 #define MAX_SPLASHES 5
+#define SPLASH_DURATION 500 // ms
+#define LED_FADE_TIME 300   // ms each LED fades after being lit
 
 typedef struct {
     uint8_t  center;
@@ -33,26 +35,30 @@ static bool keypress_splash(effect_params_t* params) {
             if (!splashes[s].active) continue;
 
             uint32_t elapsed = timer_elapsed32(splashes[s].start_time);
-            if (elapsed > splash_duration) {
+            if (elapsed > splash_duration + LED_FADE_TIME) {
                 splashes[s].active = false;
                 continue;
             }
 
+            // Current wavefront radius
             float progress = (float)elapsed / splash_duration;
             float radius   = progress * splashes[s].max_radius;
 
+            // Distance from splash center
             int16_t dx = g_led_config.point[i].x - g_led_config.point[splashes[s].center].x;
             int16_t dy = g_led_config.point[i].y - g_led_config.point[splashes[s].center].y;
             float distance = sqrtf((float)(dx * dx + dy * dy));
 
+            // If wavefront has passed this LED
             if (distance <= radius) {
-                // Fade brightness over time and distance
-                float time_fade    = 1.0f - progress;
-                float spatial_fade = 1.0f - (distance / radius);
-                if (spatial_fade < 0) spatial_fade = 0;
-
-                uint8_t brightness = (uint8_t)(255 * time_fade * spatial_fade);
-                total_brightness = MIN(255, total_brightness + brightness);
+                // Time since wavefront reached this LED
+                float led_elapsed = elapsed - (distance / splashes[s].max_radius) * splash_duration;
+                if (led_elapsed >= 0 && led_elapsed <= LED_FADE_TIME) {
+                    // Fade brightness from full → 0 over LED_FADE_TIME
+                    float fade_progress = 1.0f - (led_elapsed / LED_FADE_TIME);
+                    uint8_t brightness = (uint8_t)(255 * fade_progress);
+                    total_brightness = MIN(255, total_brightness + brightness);
+                }
             }
         }
 
@@ -78,9 +84,7 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
                 uint16_t dist = sqrt16(dx * dx + dy * dy);
                 if (dist > max_dist) max_dist = dist;
             }
-
-            // Extend radius slightly beyond keyboard edge
-            max_dist += 10;
+            max_dist += 10; // extend radius
 
             // Find a free slot
             for (uint8_t s = 0; s < MAX_SPLASHES; s++) {
