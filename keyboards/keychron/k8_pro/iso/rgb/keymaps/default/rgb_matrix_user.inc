@@ -57,15 +57,16 @@ static bool ripple_effect(effect_params_t* params) {
     }
     return rgb_matrix_check_finished_leds(led_max);
 }
-
-// Breathing effect
+// Breathing effect - fixed version
 static bool breathing_effect(effect_params_t* params) {
     RGB_MATRIX_USE_LIMITS(led_min, led_max);
-    
+
     // Calculate breathing pattern based on timer
     uint16_t time = scale16by8(g_rgb_timer, rgb_matrix_config.speed / 8);
-    uint8_t val = scale8(abs8(sin8(time) - 128) * 2, rgb_matrix_config.val);
-    
+
+    // Use rgb_matrix_get_val() instead of rgb_matrix_config.val
+    uint8_t val = scale8(abs8(sin8(time) - 128) * 2, rgb_matrix_get_val());
+
     for (uint8_t i = led_min; i < led_max; i++) {
         // Breathing purple effect
         rgb_matrix_set_color(i, scale8(val, 0xFF), 0x00, scale8(val, 0xFF));
