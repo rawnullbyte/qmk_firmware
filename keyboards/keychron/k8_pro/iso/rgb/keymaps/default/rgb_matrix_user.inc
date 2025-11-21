@@ -5,7 +5,7 @@ RGB_MATRIX_EFFECT(keypress_splash)
 #ifdef RGB_MATRIX_CUSTOM_EFFECT_IMPLS
 #include "rgb_matrix.h"
 
-#define MAX_SPLASHES 5
+#define MAX_SPLASHES 15
 #define SPLASH_DURATION 500 // ms
 #define LED_FADE_TIME 300   // ms each LED fades after being lit
 
