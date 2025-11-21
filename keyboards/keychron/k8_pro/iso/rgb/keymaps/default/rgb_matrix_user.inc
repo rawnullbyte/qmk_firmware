@@ -6,7 +6,6 @@ RGB_MATRIX_EFFECT(keypress_splash)
 #include "rgb_matrix.h"
 
 #define MAX_SPLASHES 5
-#define SPLASH_DURATION 500 // ms
 
 typedef struct {
     uint8_t  center;
@@ -20,6 +19,13 @@ static splash_t splashes[MAX_SPLASHES];
 static bool keypress_splash(effect_params_t* params) {
     RGB_MATRIX_USE_LIMITS(led_min, led_max);
 
+    // Get user-selected color from VIA/VIAL
+    HSV hsv = rgb_matrix_config.hsv;
+    RGB rgb = hsv_to_rgb(hsv);
+
+    // Duration tied to speed slider (range ~200–1000 ms)
+    uint16_t splash_duration = 200 + (rgb_matrix_config.speed * 4);
+
     for (uint8_t i = led_min; i < led_max; i++) {
         uint16_t total_brightness = 0;
 
@@ -27,12 +33,12 @@ static bool keypress_splash(effect_params_t* params) {
             if (!splashes[s].active) continue;
 
             uint32_t elapsed = timer_elapsed32(splashes[s].start_time);
-            if (elapsed > SPLASH_DURATION) {
+            if (elapsed > splash_duration) {
                 splashes[s].active = false;
                 continue;
             }
 
-            float progress = (float)elapsed / SPLASH_DURATION;
+            float progress = (float)elapsed / splash_duration;
             float radius   = progress * splashes[s].max_radius;
 
             int16_t dx = g_led_config.point[i].x - g_led_config.point[splashes[s].center].x;
@@ -40,9 +46,8 @@ static bool keypress_splash(effect_params_t* params) {
             float distance = sqrtf((float)(dx * dx + dy * dy));
 
             if (distance <= radius) {
-                // Fade brightness over time (strong at start, weaker at end)
-                float time_fade = 1.0f - progress;
-                // Spatial fade: stronger near center, weaker near edge
+                // Fade brightness over time and distance
+                float time_fade    = 1.0f - progress;
                 float spatial_fade = 1.0f - (distance / radius);
                 if (spatial_fade < 0) spatial_fade = 0;
 
@@ -51,7 +56,11 @@ static bool keypress_splash(effect_params_t* params) {
             }
         }
 
-        rgb_matrix_set_color(i, 0x00, total_brightness, total_brightness); // cyan
+        // Apply combined brightness with user-selected color
+        rgb_matrix_set_color(i,
+            (rgb.r * total_brightness) / 255,
+            (rgb.g * total_brightness) / 255,
+            (rgb.b * total_brightness) / 255);
     }
 
     return rgb_matrix_check_finished_leds(led_max);
@@ -69,6 +78,9 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
                 uint16_t dist = sqrt16(dx * dx + dy * dy);
                 if (dist > max_dist) max_dist = dist;
             }
+
+            // Extend radius slightly beyond keyboard edge
+            max_dist += 10;
 
             // Find a free slot
             for (uint8_t s = 0; s < MAX_SPLASHES; s++) {
