@@ -6,6 +6,7 @@ RGB_MATRIX_EFFECT(keypress_splash)
 #ifdef RGB_MATRIX_CUSTOM_EFFECT_IMPLS
 #include "rgb_matrix.h"
 
+// State for splash animation
 static uint8_t  splash_radius  = 0;
 static uint8_t  splash_center  = 0;
 static bool     splash_active  = false;
@@ -39,7 +40,7 @@ static bool keypress_splash(effect_params_t* params) {
     return rgb_matrix_check_finished_leds(led_max);
 }
 
-// Hook into keypresses
+// Hook into keypresses to trigger splash
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
     if (record->event.pressed) {
         // Start a new splash centered on the pressed key’s LED index
@@ -49,12 +50,6 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
         splash_timer  = timer_read32();
     }
     return true; // let QMK handle the key normally
-}
-
-// Indicators hook must return bool, not void
-bool rgb_matrix_indicators_user(void) {
-    // We don’t override indicators here, so return false
-    return false;
 }
 
 #endif // RGB_MATRIX_CUSTOM_EFFECT_IMPLS
