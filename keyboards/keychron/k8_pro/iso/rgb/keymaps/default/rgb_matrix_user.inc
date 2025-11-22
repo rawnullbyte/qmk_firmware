@@ -46,9 +46,6 @@ typedef struct {
     uint8_t size;
 } rain_drop_t;
 
-static rain_drop_t rain_drops_array[MAX_DROPS];
-static uint32_t last_rain_spawn = 0;
-
 // Golden breath effect (renamed from flame_breath)
 static float golden_time = 0;
 
