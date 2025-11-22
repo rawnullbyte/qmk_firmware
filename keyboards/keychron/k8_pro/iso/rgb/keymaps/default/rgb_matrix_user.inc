@@ -20,6 +20,8 @@ RGB_MATRIX_EFFECT(keypress_thunder)
 #include "rgb_matrix.h"
 #include "math.h"
 
+static void draw_lightning_bolt(int16_t start_x, int16_t start_y, int16_t end_x, int16_t end_y, uint8_t brightness, HSV hsv);
+
 // Existing keypress_splash effect
 #define MAX_SPLASHES 15
 #define SPLASH_DURATION 500
