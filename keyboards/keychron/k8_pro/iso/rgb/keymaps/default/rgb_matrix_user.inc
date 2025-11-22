@@ -36,7 +36,7 @@ typedef struct {
 
 static splash_t splashes[MAX_SPLASHES];
 
-// Rain drops effect - FIXED
+// Rain drops effect
 #define MAX_DROPS 5
 typedef struct {
     uint8_t x, y;
@@ -160,17 +160,18 @@ static bool rain_drops_effect(effect_params_t* params) {
     HSV hsv = rgb_matrix_config.hsv;
     uint32_t time = timer_elapsed32(0);
     
-    // Spawn new drops more frequently
-    if (time - last_rain_spawn > 300 + (255 - rgb_matrix_config.speed) * 2) {
+    // Spawn new drops
+    if (time - last_rain_spawn > 400 + (255 - rgb_matrix_config.speed) * 2) {
         last_rain_spawn = time;
         for (uint8_t i = 0; i < MAX_DROPS; i++) {
             if (!rain_drops_array[i].active) {
-                rain_drops_array[i].x = 30 + (rand() % 164); // Keep within bounds
+                // Spawn at top with random X position
+                rain_drops_array[i].x = 40 + (rand() % 144); // Keep away from edges
                 rain_drops_array[i].y = 0;
                 rain_drops_array[i].progress = 0.0f;
-                rain_drops_array[i].speed = 0.4f + (rand() % 60) * 0.01f;
+                rain_drops_array[i].speed = 0.3f + (rand() % 40) * 0.01f;
                 rain_drops_array[i].active = true;
-                rain_drops_array[i].size = 4 + (rand() % 3); // Larger drops
+                rain_drops_array[i].size = 8 + (rand() % 6); // Larger circles (8-13 pixels)
                 break;
             }
         }
@@ -179,56 +180,99 @@ static bool rain_drops_effect(effect_params_t* params) {
     // Update drops
     for (uint8_t d = 0; d < MAX_DROPS; d++) {
         if (rain_drops_array[d].active) {
-            rain_drops_array[d].progress += rain_drops_array[d].speed * 0.03f;
-            if (rain_drops_array[d].progress > 1.0f) {
+            rain_drops_array[d].progress += rain_drops_array[d].speed * 0.02f;
+            if (rain_drops_array[d].progress > 1.2f) { // Allow extra time for splash
                 rain_drops_array[d].active = false;
             }
         }
     }
     
-    // Render drops as animated circles
+    // Clear all LEDs first for clean animation
     for (uint8_t i = led_min; i < led_max; i++) {
-        uint8_t brightness = 0;
+        rgb_matrix_set_color(i, 0, 0, 0);
+    }
+    
+    // Render drops as animated circles
+    for (uint8_t d = 0; d < MAX_DROPS; d++) {
+        if (!rain_drops_array[d].active) continue;
         
-        for (uint8_t d = 0; d < MAX_DROPS; d++) {
-            if (!rain_drops_array[d].active) continue;
-            
-            uint8_t drop_y = (uint8_t)(rain_drops_array[d].progress * 128);
-            int16_t dx = g_led_config.point[i].x - rain_drops_array[d].x;
-            int16_t dy = g_led_config.point[i].y - drop_y;
-            float distance = sqrtf(dx * dx + dy * dy);
-            
-            // Main drop circle - larger and more visible
-            if (distance < rain_drops_array[d].size) {
-                float intensity = 1.0f - (distance / rain_drops_array[d].size);
-                uint8_t drop_bright = (uint8_t)(255 * intensity * intensity); // Quadratic falloff
-                brightness = MAX(brightness, drop_bright);
-            }
-            
-            // Splash effect when drop hits bottom
-            if (drop_y > 110) {
-                float splash_progress = (drop_y - 110) / 18.0f;
-                if (splash_progress < 1.0f) {
-                    float splash_radius = splash_progress * 12.0f;
-                    float splash_distance = fabs(distance - splash_radius);
-                    
-                    if (splash_distance < 3.0f) {
-                        float splash_intensity = (1.0f - splash_progress) * (1.0f - splash_distance / 3.0f);
-                        uint8_t splash_bright = (uint8_t)(255 * splash_intensity);
-                        brightness = MAX(brightness, splash_bright);
-                    }
+        float progress = rain_drops_array[d].progress;
+        uint8_t drop_y = (uint8_t)(progress * 100); // Drop falls to y=100
+        
+        // Falling drop (before splash)
+        if (progress <= 1.0f) {
+            // Draw the falling drop as a small circle
+            for (uint8_t i = 0; i < RGB_MATRIX_LED_COUNT; i++) {
+                int16_t dx = g_led_config.point[i].x - rain_drops_array[d].x;
+                int16_t dy = g_led_config.point[i].y - drop_y;
+                float distance = sqrtf(dx * dx + dy * dy);
+                
+                // Small falling drop (3 pixel circle)
+                if (distance < 3.0f) {
+                    float intensity = 1.0f - (distance / 3.0f);
+                    uint8_t brightness = (uint8_t)(200 * intensity);
+                    RGB rgb = hsv_to_rgb(hsv);
+                    rgb_matrix_set_color(i, 
+                        (rgb.r * brightness) / 255,
+                        (rgb.g * brightness) / 255, 
+                        (rgb.b * brightness) / 255);
                 }
             }
         }
         
-        if (brightness > 0) {
-            RGB rgb = hsv_to_rgb(hsv);
-            rgb_matrix_set_color(i, 
-                (rgb.r * brightness) / 255,
-                (rgb.g * brightness) / 255, 
-                (rgb.b * brightness) / 255);
-        } else {
-            rgb_matrix_set_color(i, 0, 0, 0);
+        // Splash effect when drop hits bottom
+        if (progress > 0.8f && progress <= 1.2f) {
+            float splash_progress = (progress - 0.8f) / 0.4f; // 0 to 1 during splash
+            float splash_radius = splash_progress * rain_drops_array[d].size;
+            
+            // Draw expanding splash circle
+            for (uint8_t i = 0; i < RGB_MATRIX_LED_COUNT; i++) {
+                int16_t dx = g_led_config.point[i].x - rain_drops_array[d].x;
+                int16_t dy = g_led_config.point[i].y - 100; // Splash at bottom
+                float distance = sqrtf(dx * dx + dy * dy);
+                
+                // Expanding splash ring
+                if (fabs(distance - splash_radius) < 2.5f) {
+                    float ring_intensity = (1.0f - splash_progress) * (1.0f - fabs(distance - splash_radius) / 2.5f);
+                    uint8_t brightness = (uint8_t)(255 * ring_intensity * ring_intensity);
+                    
+                    if (brightness > 0) {
+                        RGB rgb = hsv_to_rgb(hsv);
+                        rgb_matrix_set_color(i, 
+                            (rgb.r * brightness) / 255,
+                            (rgb.g * brightness) / 255, 
+                            (rgb.b * brightness) / 255);
+                    }
+                }
+            }
+            
+            // Add splash droplets flying up
+            if (splash_progress < 0.3f) {
+                for (uint8_t droplet = 0; droplet < 3; droplet++) {
+                    float angle = (droplet * 120) * (M_PI / 180.0f); // 120 degree spacing
+                    float droplet_x = rain_drops_array[d].x + cos(angle) * splash_radius * 0.7f;
+                    float droplet_y = 100 - sin(angle) * splash_radius * 0.5f; // Fly upward
+                    
+                    for (uint8_t i = 0; i < RGB_MATRIX_LED_COUNT; i++) {
+                        int16_t dx = g_led_config.point[i].x - droplet_x;
+                        int16_t dy = g_led_config.point[i].y - droplet_y;
+                        float distance = sqrtf(dx * dx + dy * dy);
+                        
+                        if (distance < 2.0f) {
+                            float intensity = 1.0f - (distance / 2.0f);
+                            uint8_t brightness = (uint8_t)(180 * intensity * (1.0f - splash_progress * 3.0f));
+                            
+                            if (brightness > 0) {
+                                RGB rgb = hsv_to_rgb(hsv);
+                                rgb_matrix_set_color(i, 
+                                    (rgb.r * brightness) / 255,
+                                    (rgb.g * brightness) / 255, 
+                                    (rgb.b * brightness) / 255);
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
     
