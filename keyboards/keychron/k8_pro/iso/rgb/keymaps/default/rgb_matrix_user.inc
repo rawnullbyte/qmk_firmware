@@ -151,24 +151,24 @@ typedef struct {
 
 static key_thunder_t key_thunders[MAX_THUNDERS_KEY];
 
-// ===== FIXED RAIN DROPS EFFECT =====
+// ===== RAIN DROPS EFFECT =====
 static bool rain_drops_effect(effect_params_t* params) {
     RGB_MATRIX_USE_LIMITS(led_min, led_max);
     
     HSV hsv = rgb_matrix_config.hsv;
     uint32_t time = timer_elapsed32(0);
     
-    // Spawn new drops occasionally
-    if (time - last_rain_spawn > 500 + (255 - rgb_matrix_config.speed) * 3) {
+    // Spawn new drops more frequently
+    if (time - last_rain_spawn > 300 + (255 - rgb_matrix_config.speed) * 2) {
         last_rain_spawn = time;
         for (uint8_t i = 0; i < MAX_DROPS; i++) {
             if (!rain_drops_array[i].active) {
-                rain_drops_array[i].x = 20 + (rand() % 184);
+                rain_drops_array[i].x = 30 + (rand() % 164); // Keep within bounds
                 rain_drops_array[i].y = 0;
                 rain_drops_array[i].progress = 0.0f;
-                rain_drops_array[i].speed = 0.3f + (rand() % 70) * 0.01f;
+                rain_drops_array[i].speed = 0.4f + (rand() % 60) * 0.01f;
                 rain_drops_array[i].active = true;
-                rain_drops_array[i].size = 3 + (rand() % 4);
+                rain_drops_array[i].size = 4 + (rand() % 3); // Larger drops
                 break;
             }
         }
@@ -177,14 +177,14 @@ static bool rain_drops_effect(effect_params_t* params) {
     // Update drops
     for (uint8_t d = 0; d < MAX_DROPS; d++) {
         if (rain_drops_array[d].active) {
-            rain_drops_array[d].progress += rain_drops_array[d].speed * 0.02f;
+            rain_drops_array[d].progress += rain_drops_array[d].speed * 0.03f;
             if (rain_drops_array[d].progress > 1.0f) {
                 rain_drops_array[d].active = false;
             }
         }
     }
     
-    // Render drops as circles with ripples
+    // Render drops as animated circles
     for (uint8_t i = led_min; i < led_max; i++) {
         uint8_t brightness = 0;
         
@@ -196,21 +196,25 @@ static bool rain_drops_effect(effect_params_t* params) {
             int16_t dy = g_led_config.point[i].y - drop_y;
             float distance = sqrtf(dx * dx + dy * dy);
             
-            // Main drop circle
+            // Main drop circle - larger and more visible
             if (distance < rain_drops_array[d].size) {
-                uint8_t drop_bright = (uint8_t)(255 * (1.0f - distance / rain_drops_array[d].size));
+                float intensity = 1.0f - (distance / rain_drops_array[d].size);
+                uint8_t drop_bright = (uint8_t)(255 * intensity * intensity); // Quadratic falloff
                 brightness = MAX(brightness, drop_bright);
             }
             
-            // Ripple effect when drop hits "ground" (near bottom)
-            if (drop_y > 100 && drop_y < 110) {
-                float ripple_progress = (drop_y - 100) / 10.0f;
-                float ripple_radius = ripple_progress * 15.0f;
-                float ripple_distance = fabs(distance - ripple_radius);
-                
-                if (ripple_distance < 2.0f) {
-                    uint8_t ripple_bright = (uint8_t)(255 * (1.0f - ripple_progress) * (1.0f - ripple_distance / 2.0f));
-                    brightness = MAX(brightness, ripple_bright);
+            // Splash effect when drop hits bottom
+            if (drop_y > 110) {
+                float splash_progress = (drop_y - 110) / 18.0f;
+                if (splash_progress < 1.0f) {
+                    float splash_radius = splash_progress * 12.0f;
+                    float splash_distance = fabs(distance - splash_radius);
+                    
+                    if (splash_distance < 3.0f) {
+                        float splash_intensity = (1.0f - splash_progress) * (1.0f - splash_distance / 3.0f);
+                        uint8_t splash_bright = (uint8_t)(255 * splash_intensity);
+                        brightness = MAX(brightness, splash_bright);
+                    }
                 }
             }
         }
@@ -268,19 +272,24 @@ static bool thunder_storm(effect_params_t* params) {
     HSV hsv = rgb_matrix_config.hsv;
     uint32_t time = timer_elapsed32(0);
     
-    // Spawn new thunders occasionally
-    if (time - last_thunder_spawn > 2000 + (rand() % 5000)) {
+    // Spawn thunders more frequently and multiple at once
+    if (time - last_thunder_spawn > 800 + (rand() % 1200)) {
         last_thunder_spawn = time;
-        for (uint8_t i = 0; i < MAX_THUNDERS; i++) {
-            if (!thunders[i].active) {
-                thunders[i].start_x = rand() % 224;
-                thunders[i].start_y = 0;
-                thunders[i].end_x = thunders[i].start_x + (rand() % 40) - 20;
-                thunders[i].end_y = 128;
-                thunders[i].start_time = time;
-                thunders[i].active = true;
-                thunders[i].intensity = 200 + rand() % 55;
-                break;
+        
+        // Spawn 1-3 thunders at once
+        uint8_t num_thunders = 1 + (rand() % 3);
+        for (uint8_t t = 0; t < num_thunders && t < MAX_THUNDERS; t++) {
+            if (!thunders[t].active) {
+                thunders[t].start_x = 20 + (rand() % 184);
+                thunders[t].start_y = 0;
+                
+                // Create branching lightning - multiple segments
+                thunders[t].end_x = thunders[t].start_x + (rand() % 60) - 30;
+                thunders[t].end_y = 80 + (rand() % 48);
+                
+                thunders[t].start_time = time;
+                thunders[t].active = true;
+                thunders[t].intensity = 220 + rand() % 35;
             }
         }
     }
@@ -295,39 +304,39 @@ static bool thunder_storm(effect_params_t* params) {
         if (!thunders[t].active) continue;
         
         uint32_t elapsed = time - thunders[t].start_time;
-        if (elapsed > 300) { // Thunder lasts 300ms
+        if (elapsed > 500) { // Thunder lasts longer
             thunders[t].active = false;
             continue;
         }
         
-        // Thunder flickers
-        uint8_t brightness = (elapsed < 100 || (elapsed > 150 && elapsed < 180) || (elapsed > 220 && elapsed < 240)) ? thunders[t].intensity : 0;
+        // More dramatic flickering pattern
+        bool is_visible = (elapsed < 120) || 
+                         (elapsed > 160 && elapsed < 200) || 
+                         (elapsed > 240 && elapsed < 280) ||
+                         (elapsed > 320 && elapsed < 350);
         
-        if (brightness > 0) {
-            // Draw thunder bolt as a line with branches
-            int16_t dx = thunders[t].end_x - thunders[t].start_x;
-            int16_t dy = thunders[t].end_y - thunders[t].start_y;
-            float steps = fmax(fabs(dx), fabs(dy));
+        if (is_visible) {
+            uint8_t brightness = thunders[t].intensity;
             
-            for (uint8_t step = 0; step < steps; step++) {
-                float t_val = step / steps;
-                uint8_t x = thunders[t].start_x + (uint8_t)(dx * t_val);
-                uint8_t y = thunders[t].start_y + (uint8_t)(dy * t_val);
+            // Draw main lightning bolt with multiple branches
+            draw_lightning_bolt(thunders[t].start_x, thunders[t].start_y, 
+                              thunders[t].end_x, thunders[t].end_y, brightness, hsv);
+            
+            // Add branches for more dramatic effect
+            if (elapsed < 200) {
+                // First branch
+                int16_t branch1_x = thunders[t].start_x + (thunders[t].end_x - thunders[t].start_x) / 2 + (rand() % 20) - 10;
+                int16_t branch1_y = thunders[t].start_y + (thunders[t].end_y - thunders[t].start_y) / 2;
+                draw_lightning_bolt(thunders[t].start_x + (thunders[t].end_x - thunders[t].start_x) / 2,
+                                  thunders[t].start_y + (thunders[t].end_y - thunders[t].start_y) / 2,
+                                  branch1_x, branch1_y + 30, brightness - 40, hsv);
                 
-                // Add some randomness to make it look like lightning
-                x += (rand() % 5) - 2;
-                y += (rand() % 3) - 1;
-                
-                // Find closest LED to this point
-                for (uint8_t i = led_min; i < led_max; i++) {
-                    int16_t led_dx = abs(g_led_config.point[i].x - x);
-                    int16_t led_dy = abs(g_led_config.point[i].y - y);
-                    
-                    if (led_dx < 3 && led_dy < 3) {
-                        RGB rgb = hsv_to_rgb(hsv);
-                        rgb_matrix_set_color(i, rgb.r, rgb.g, rgb.b);
-                    }
-                }
+                // Second branch
+                int16_t branch2_x = thunders[t].start_x + (thunders[t].end_x - thunders[t].start_x) / 3 + (rand() % 15) - 7;
+                int16_t branch2_y = thunders[t].start_y + (thunders[t].end_y - thunders[t].start_y) / 3;
+                draw_lightning_bolt(thunders[t].start_x + (thunders[t].end_x - thunders[t].start_x) / 3,
+                                  thunders[t].start_y + (thunders[t].end_y - thunders[t].start_y) / 3,
+                                  branch2_x, branch2_y + 25, brightness - 60, hsv);
             }
         }
     }
@@ -335,28 +344,70 @@ static bool thunder_storm(effect_params_t* params) {
     return rgb_matrix_check_finished_leds(led_max);
 }
 
-// ===== FIXED KEYPRESS FLAME EFFECT =====
+// Helper function to draw lightning bolts
+static void draw_lightning_bolt(int16_t start_x, int16_t start_y, int16_t end_x, int16_t end_y, uint8_t brightness, HSV hsv) {
+    int16_t dx = end_x - start_x;
+    int16_t dy = end_y - start_y;
+    float steps = fmax(fabs(dx), fabs(dy));
+    
+    for (uint8_t step = 0; step < steps; step++) {
+        float t_val = step / steps;
+        uint8_t x = start_x + (uint8_t)(dx * t_val);
+        uint8_t y = start_y + (uint8_t)(dy * t_val);
+        
+        // Add jaggedness to make it look like lightning
+        if (step % 4 == 0) { // Add jags every few steps
+            x += (rand() % 8) - 4;
+            y += (rand() % 6) - 3;
+        }
+        
+        // Light up LEDs near this point
+        for (uint8_t i = 0; i < RGB_MATRIX_LED_COUNT; i++) {
+            int16_t led_dx = abs(g_led_config.point[i].x - x);
+            int16_t led_dy = abs(g_led_config.point[i].y - y);
+            
+            if (led_dx < 4 && led_dy < 4) { // Wider lightning
+                float distance = sqrtf(led_dx * led_dx + led_dy * led_dy);
+                if (distance < 3.5f) {
+                    uint8_t led_brightness = (uint8_t)(brightness * (1.0f - distance / 3.5f));
+                    RGB rgb = hsv_to_rgb(hsv);
+                    rgb_matrix_set_color(i, 
+                        (rgb.r * led_brightness) / 255,
+                        (rgb.g * led_brightness) / 255,
+                        (rgb.b * led_brightness) / 255);
+                }
+            }
+        }
+    }
+}
+
+// ===== KEYPRESS FLAME EFFECT =====
 static bool keypress_flame(effect_params_t* params) {
     RGB_MATRIX_USE_LIMITS(led_min, led_max);
     
     uint32_t current_time = timer_elapsed32(0);
     HSV hsv = rgb_matrix_config.hsv;
     
+    // Base fire color - shift towards orange/red
+    uint8_t base_hue = (hsv.h + 10) % 255; // Orange-red tint
+    
     for (uint8_t i = led_min; i < led_max; i++) {
         uint8_t total_brightness = 0;
+        uint8_t flame_hue = base_hue;
         
         for (uint8_t f = 0; f < MAX_FLAMES; f++) {
             if (!flames[f].active) continue;
             
             // Update flicker for active flames
-            if (current_time - flames[f].last_update > 50) {
-                flames[f].flicker_offset = rand() % 30;
+            if (current_time - flames[f].last_update > 40) { // Faster flicker
+                flames[f].flicker_offset = rand() % 100;
                 flames[f].last_update = current_time;
             }
             
-            // Base flame properties
-            float base_radius = 12.0f;
-            float flicker = 1.0f + sin(flames[f].flicker_offset * 0.1f) * 0.3f;
+            // Animated flame properties
+            float time_factor = (current_time * 0.001f);
+            float base_radius = 8.0f + sin(time_factor + f) * 2.0f; // Pulsing radius
+            float flicker = 0.7f + sin(flames[f].flicker_offset * 0.2f) * 0.3f;
             float radius = base_radius * flicker;
             
             int16_t dx = g_led_config.point[i].x - g_led_config.point[flames[f].center].x;
@@ -364,18 +415,34 @@ static bool keypress_flame(effect_params_t* params) {
             float distance = sqrtf(dx * dx + dy * dy);
             
             if (distance <= radius) {
-                // Flame intensity decreases with distance and has flickering
-                float intensity = 1.0f - (distance / radius);
-                float flame_flicker = 0.7f + (sin(flames[f].flicker_offset + distance * 0.5f) * 0.3f);
-                uint8_t brightness = (uint8_t)(255 * intensity * flame_flicker);
-                total_brightness = MIN(255, total_brightness + brightness);
+                // Flame intensity with multiple layers
+                float core_intensity = 1.0f - (distance / (radius * 0.6f));
+                float outer_intensity = 1.0f - (distance / radius);
+                
+                if (core_intensity > 0) {
+                    // Core of flame - hot (yellow/white)
+                    uint8_t core_bright = (uint8_t)(255 * core_intensity * flicker);
+                    total_brightness = MIN(255, total_brightness + core_bright);
+                    flame_hue = (base_hue - 15) % 255; // More yellow
+                }
+                else if (outer_intensity > 0) {
+                    // Outer flame - cooler (orange/red)
+                    float flame_wave = sin(distance * 0.5f + time_factor * 3.0f) * 0.2f + 0.8f;
+                    uint8_t outer_bright = (uint8_t)(200 * outer_intensity * flame_wave * flicker);
+                    total_brightness = MIN(255, total_brightness + outer_bright);
+                    flame_hue = (base_hue + (uint8_t)(distance * 2)) % 255; // Color variation
+                }
+                
+                // Add flame turbulence
+                float turbulence = sin(dx * 0.3f + time_factor * 4.0f) * cos(dy * 0.2f + time_factor * 3.0f) * 0.3f + 0.7f;
+                total_brightness = (uint8_t)(total_brightness * turbulence);
             }
         }
         
         if (total_brightness > 0) {
-            // Orange-red flame colors that follow user hue
-            uint8_t flame_hue = (hsv.h + 10) % 255; // Slightly shifted for fire effect
-            HSV flame_hsv = {flame_hue, hsv.s, total_brightness};
+            // Animated fire colors
+            uint8_t saturation = 255 - (total_brightness / 3); // Less saturated for brighter areas
+            HSV flame_hsv = {flame_hue, saturation, total_brightness};
             RGB rgb = hsv_to_rgb(flame_hsv);
             rgb_matrix_set_color(i, rgb.r, rgb.g, rgb.b);
         } else {
