@@ -10,6 +10,11 @@ RGB_MATRIX_EFFECT(plasma_cloud)
 RGB_MATRIX_EFFECT(keypress_flame)
 RGB_MATRIX_EFFECT(breathe_cycle)
 RGB_MATRIX_EFFECT(ripple_pool)
+RGB_MATRIX_EFFECT(keypress_ripple)
+RGB_MATRIX_EFFECT(keypress_sparkle)
+RGB_MATRIX_EFFECT(keypress_trail)
+RGB_MATRIX_EFFECT(keypress_sonar)
+RGB_MATRIX_EFFECT(keypress_bloom)
 
 #ifdef RGB_MATRIX_CUSTOM_EFFECT_IMPLS
 #include "rgb_matrix.h"
@@ -44,7 +49,6 @@ static uint32_t last_rain_spawn = 0;
 
 // Flame breath effect
 static float flame_time = 0;
-static uint8_t flame_base_hue = 20; // Orange base
 
 // Cosmic swirl effect
 static float cosmic_angle = 0;
@@ -87,6 +91,339 @@ typedef struct {
 
 static ripple_t ripples[MAX_RIPPLES];
 static uint32_t last_auto_ripple = 0;
+
+// New keypress effects
+#define MAX_RIPPLES_KEY 8
+typedef struct {
+    uint8_t center;
+    uint32_t start_time;
+    bool active;
+    HSV color;
+} key_ripple_t;
+
+static key_ripple_t key_ripples[MAX_RIPPLES_KEY];
+
+#define MAX_SPARKLES 12
+typedef struct {
+    uint8_t center;
+    uint32_t start_time;
+    bool active;
+    uint8_t lifetime;
+} sparkle_t;
+
+static sparkle_t sparkles[MAX_SPARKLES];
+
+#define MAX_TRAILS 6
+typedef struct {
+    uint8_t center;
+    uint32_t start_time;
+    bool active;
+    uint8_t direction;
+} trail_t;
+
+static trail_t trails[MAX_TRAILS];
+
+#define MAX_SONARS 8
+typedef struct {
+    uint8_t center;
+    uint32_t start_time;
+    bool active;
+    uint8_t hue;
+} sonar_t;
+
+static sonar_t sonars[MAX_SONARS];
+
+#define MAX_BLOOMS 10
+typedef struct {
+    uint8_t center;
+    uint32_t start_time;
+    bool active;
+    HSV color;
+} bloom_t;
+
+static bloom_t blooms[MAX_BLOOMS];
+
+// ===== FIXED FLAME BREATH EFFECT =====
+static bool flame_breath(effect_params_t* params) {
+    RGB_MATRIX_USE_LIMITS(led_min, led_max);
+    
+    flame_time += 0.02;
+    
+    for (uint8_t i = led_min; i < led_max; i++) {
+        uint8_t x = g_led_config.point[i].x;
+        uint8_t y = g_led_config.point[i].y;
+        
+        // Create breathing effect
+        float breath = (sin(flame_time) + 1.0) * 0.5;
+        
+        // Flame-like flickering using multiple noise layers
+        float noise1 = sin(x * 0.1 + flame_time * 2.0) * 0.3;
+        float noise2 = cos(y * 0.15 + flame_time * 1.7) * 0.2;
+        float noise3 = sin((x + y) * 0.05 + flame_time * 3.0) * 0.2;
+        
+        float combined_noise = noise1 + noise2 + noise3;
+        float normalized_noise = (combined_noise + 0.7) * 0.7; // Normalize to 0-1 range
+        
+        // Base brightness with breathing
+        uint8_t base_bright = (uint8_t)(breath * normalized_noise * rgb_matrix_config.hsv.v);
+        
+        // Orange to yellow gradient based on Y position (hotter at bottom)
+        uint8_t hue = 20 + (y * 15) / 128; // 20 (orange) to 35 (yellow)
+        
+        HSV hsv = {hue, 255, base_bright};
+        RGB rgb = hsv_to_rgb(hsv);
+        
+        rgb_matrix_set_color(i, rgb.r, rgb.g, rgb.b);
+    }
+    
+    return rgb_matrix_check_finished_leds(led_max);
+}
+
+// ===== KEYPRESS RIPPLE EFFECT =====
+static bool keypress_ripple(effect_params_t* params) {
+    RGB_MATRIX_USE_LIMITS(led_min, led_max);
+    
+    uint16_t ripple_duration = 1200 + (rgb_matrix_config.speed * 4);
+    
+    for (uint8_t i = led_min; i < led_max; i++) {
+        uint8_t brightness = 0;
+        HSV final_hsv = {0, 0, 0};
+        
+        for (uint8_t r = 0; r < MAX_RIPPLES_KEY; r++) {
+            if (!key_ripples[r].active) continue;
+            
+            uint32_t elapsed = timer_elapsed32(key_ripples[r].start_time);
+            if (elapsed > ripple_duration) {
+                key_ripples[r].active = false;
+                continue;
+            }
+            
+            float progress = (float)elapsed / ripple_duration;
+            float radius = progress * 40;
+            
+            int16_t dx = g_led_config.point[i].x - g_led_config.point[key_ripples[r].center].x;
+            int16_t dy = g_led_config.point[i].y - g_led_config.point[key_ripples[r].center].y;
+            float distance = sqrtf(dx * dx + dy * dy);
+            
+            if (fabs(distance - radius) < 4) {
+                float ripple_intensity = sin(progress * M_PI) * (1.0 - fabs(distance - radius) / 4);
+                uint8_t ripple_bright = (uint8_t)(ripple_intensity * 255);
+                brightness = MAX(brightness, ripple_bright);
+                final_hsv = key_ripples[r].color;
+            }
+        }
+        
+        if (brightness > 0) {
+            final_hsv.v = brightness;
+            RGB rgb = hsv_to_rgb(final_hsv);
+            rgb_matrix_set_color(i, rgb.r, rgb.g, rgb.b);
+        } else {
+            rgb_matrix_set_color(i, 0, 0, 0);
+        }
+    }
+    
+    return rgb_matrix_check_finished_leds(led_max);
+}
+
+// ===== KEYPRESS SPARKLE EFFECT =====
+static bool keypress_sparkle(effect_params_t* params) {
+    RGB_MATRIX_USE_LIMITS(led_min, led_max);
+    
+    uint16_t sparkle_duration = 600 + (rgb_matrix_config.speed * 3);
+    
+    for (uint8_t i = led_min; i < led_max; i++) {
+        uint8_t brightness = 0;
+        
+        for (uint8_t s = 0; s < MAX_SPARKLES; s++) {
+            if (!sparkles[s].active) continue;
+            
+            uint32_t elapsed = timer_elapsed32(sparkles[s].start_time);
+            if (elapsed > sparkle_duration) {
+                sparkles[s].active = false;
+                continue;
+            }
+            
+            float progress = (float)elapsed / sparkle_duration;
+            
+            // Check if this LED is the sparkle center or adjacent
+            int16_t dx = abs(g_led_config.point[i].x - g_led_config.point[sparkles[s].center].x);
+            int16_t dy = abs(g_led_config.point[i].y - g_led_config.point[sparkles[s].center].y);
+            
+            if (dx <= 8 && dy <= 8) {
+                float distance = sqrtf(dx * dx + dy * dy);
+                if (distance < 6) {
+                    // Sparkle with twinkling effect
+                    float sparkle = sin(progress * M_PI * 8) * (1.0 - progress) * (1.0 - distance / 6);
+                    brightness = MAX(brightness, (uint8_t)(sparkle * 255));
+                }
+            }
+        }
+        
+        if (brightness > 0) {
+            // White sparkles
+            rgb_matrix_set_color(i, brightness, brightness, brightness);
+        } else {
+            rgb_matrix_set_color(i, 0, 0, 0);
+        }
+    }
+    
+    return rgb_matrix_check_finished_leds(led_max);
+}
+
+// ===== KEYPRESS TRAIL EFFECT =====
+static bool keypress_trail(effect_params_t* params) {
+    RGB_MATRIX_USE_LIMITS(led_min, led_max);
+    
+    uint16_t trail_duration = 800 + (rgb_matrix_config.speed * 3);
+    
+    for (uint8_t i = led_min; i < led_max; i++) {
+        uint8_t brightness = 0;
+        uint8_t hue = rgb_matrix_config.hsv.h;
+        
+        for (uint8_t t = 0; t < MAX_TRAILS; t++) {
+            if (!trails[t].active) continue;
+            
+            uint32_t elapsed = timer_elapsed32(trails[t].start_time);
+            if (elapsed > trail_duration) {
+                trails[t].active = false;
+                continue;
+            }
+            
+            float progress = (float)elapsed / trail_duration;
+            
+            // Create trail based on direction
+            int16_t dx = g_led_config.point[i].x - g_led_config.point[trails[t].center].x;
+            int16_t dy = g_led_config.point[i].y - g_led_config.point[trails[t].center].y;
+            
+            // Different trail patterns based on direction
+            float distance = 0;
+            switch (trails[t].direction) {
+                case 0: // Horizontal
+                    distance = abs(dx);
+                    break;
+                case 1: // Vertical
+                    distance = abs(dy);
+                    break;
+                case 2: // Diagonal
+                    distance = (abs(dx) + abs(dy)) * 0.7;
+                    break;
+                default: // Radial
+                    distance = sqrtf(dx * dx + dy * dy);
+                    break;
+            }
+            
+            if (distance < 20) {
+                float trail_intensity = (1.0 - progress) * (1.0 - distance / 20);
+                brightness = MAX(brightness, (uint8_t)(trail_intensity * 255));
+                hue = (rgb_matrix_config.hsv.h + (uint8_t)(progress * 60)) % 255;
+            }
+        }
+        
+        if (brightness > 0) {
+            HSV hsv = {hue, 255, brightness};
+            RGB rgb = hsv_to_rgb(hsv);
+            rgb_matrix_set_color(i, rgb.r, rgb.g, rgb.b);
+        } else {
+            rgb_matrix_set_color(i, 0, 0, 0);
+        }
+    }
+    
+    return rgb_matrix_check_finished_leds(led_max);
+}
+
+// ===== KEYPRESS SONAR EFFECT =====
+static bool keypress_sonar(effect_params_t* params) {
+    RGB_MATRIX_USE_LIMITS(led_min, led_max);
+    
+    uint16_t sonar_duration = 1500 + (rgb_matrix_config.speed * 5);
+    
+    for (uint8_t i = led_min; i < led_max; i++) {
+        uint8_t brightness = 0;
+        uint8_t hue = 0;
+        
+        for (uint8_t s = 0; s < MAX_SONARS; s++) {
+            if (!sonars[s].active) continue;
+            
+            uint32_t elapsed = timer_elapsed32(sonars[s].start_time);
+            if (elapsed > sonar_duration) {
+                sonars[s].active = false;
+                continue;
+            }
+            
+            float progress = (float)elapsed / sonar_duration;
+            float radius = progress * 60;
+            
+            int16_t dx = g_led_config.point[i].x - g_led_config.point[sonars[s].center].x;
+            int16_t dy = g_led_config.point[i].y - g_led_config.point[sonars[s].center].y;
+            float distance = sqrtf(dx * dx + dy * dy);
+            
+            // Thin sonar pulse
+            if (fabs(distance - radius) < 2) {
+                float pulse_width = 2.0;
+                float sonar_intensity = (1.0 - progress) * (1.0 - fabs(distance - radius) / pulse_width);
+                brightness = MAX(brightness, (uint8_t)(sonar_intensity * 255));
+                hue = sonars[s].hue;
+            }
+        }
+        
+        if (brightness > 0) {
+            HSV hsv = {hue, 255, brightness};
+            RGB rgb = hsv_to_rgb(hsv);
+            rgb_matrix_set_color(i, rgb.r, rgb.g, rgb.b);
+        } else {
+            rgb_matrix_set_color(i, 0, 0, 0);
+        }
+    }
+    
+    return rgb_matrix_check_finished_leds(led_max);
+}
+
+// ===== KEYPRESS BLOOM EFFECT =====
+static bool keypress_bloom(effect_params_t* params) {
+    RGB_MATRIX_USE_LIMITS(led_min, led_max);
+    
+    uint16_t bloom_duration = 1000 + (rgb_matrix_config.speed * 4);
+    
+    for (uint8_t i = led_min; i < led_max; i++) {
+        uint8_t brightness = 0;
+        HSV final_hsv = {0, 0, 0};
+        
+        for (uint8_t b = 0; b < MAX_BLOOMS; b++) {
+            if (!blooms[b].active) continue;
+            
+            uint32_t elapsed = timer_elapsed32(blooms[b].start_time);
+            if (elapsed > bloom_duration) {
+                blooms[b].active = false;
+                continue;
+            }
+            
+            float progress = (float)elapsed / bloom_duration;
+            float radius = progress * 25;
+            
+            int16_t dx = g_led_config.point[i].x - g_led_config.point[blooms[b].center].x;
+            int16_t dy = g_led_config.point[i].y - g_led_config.point[blooms[b].center].y;
+            float distance = sqrtf(dx * dx + dy * dy);
+            
+            if (distance <= radius) {
+                // Soft bloom with smooth fade
+                float bloom_intensity = (1.0 - progress) * (1.0 - distance / radius);
+                uint8_t bloom_bright = (uint8_t)(bloom_intensity * 255);
+                brightness = MAX(brightness, bloom_bright);
+                final_hsv = blooms[b].color;
+            }
+        }
+        
+        if (brightness > 0) {
+            final_hsv.v = brightness;
+            RGB rgb = hsv_to_rgb(final_hsv);
+            rgb_matrix_set_color(i, rgb.r, rgb.g, rgb.b);
+        } else {
+            rgb_matrix_set_color(i, 0, 0, 0);
+        }
+    }
+    
+    return rgb_matrix_check_finished_leds(led_max);
+}
 
 // ===== RAIN DROPS EFFECT =====
 static bool rain_drops_effect(effect_params_t* params) {
@@ -136,7 +473,7 @@ static bool rain_drops_effect(effect_params_t* params) {
         }
         
         if (brightness > 0) {
-            RGB rgb = hsv_to_rgb(rain_drops_array[0].color); // Use first drop's color
+            RGB rgb = hsv_to_rgb(rain_drops_array[0].color);
             rgb_matrix_set_color(i, 
                 (rgb.r * brightness) / 255,
                 (rgb.g * brightness) / 255, 
@@ -149,33 +486,7 @@ static bool rain_drops_effect(effect_params_t* params) {
     return rgb_matrix_check_finished_leds(led_max);
 }
 
-// ===== FLAME BREATH EFFECT (Dynamic) =====
-static bool flame_breath(effect_params_t* params) {
-    RGB_MATRIX_USE_LIMITS(led_min, led_max);
-    
-    flame_time += 0.02;
-    uint8_t breath = (sin(flame_time) + 1.0) * 127.5;
-    
-    for (uint8_t i = led_min; i < led_max; i++) {
-        uint8_t x = g_led_config.point[i].x;
-        uint8_t y = g_led_config.point[i].y;
-        
-        // Flame-like noise pattern
-        float noise = sin(x * 0.1 + flame_time) * cos(y * 0.1 + flame_time);
-        uint8_t base_bright = (uint8_t)(breath * (0.7 + noise * 0.3));
-        
-        // Orange to yellow gradient
-        uint8_t hue = flame_base_hue + (y * 10) / 128;
-        HSV hsv = {hue, 255, base_bright};
-        RGB rgb = hsv_to_rgb(hsv);
-        
-        rgb_matrix_set_color(i, rgb.r, rgb.g, rgb.b);
-    }
-    
-    return rgb_matrix_check_finished_leds(led_max);
-}
-
-// ===== COSMIC SWIRL EFFECT (Dynamic) =====
+// ===== COSMIC SWIRL EFFECT =====
 static bool cosmic_swirl(effect_params_t* params) {
     RGB_MATRIX_USE_LIMITS(led_min, led_max);
     
@@ -200,7 +511,7 @@ static bool cosmic_swirl(effect_params_t* params) {
     return rgb_matrix_check_finished_leds(led_max);
 }
 
-// ===== PULSE WAVE EFFECT (Dynamic) =====
+// ===== PULSE WAVE EFFECT =====
 static bool pulse_wave(effect_params_t* params) {
     RGB_MATRIX_USE_LIMITS(led_min, led_max);
     
@@ -224,11 +535,10 @@ static bool pulse_wave(effect_params_t* params) {
     return rgb_matrix_check_finished_leds(led_max);
 }
 
-// ===== STARFIELD EFFECT (Dynamic) =====
+// ===== STARFIELD EFFECT =====
 static bool starfield(effect_params_t* params) {
     RGB_MATRIX_USE_LIMITS(led_min, led_max);
     
-    // Initialize stars
     static bool initialized = false;
     if (!initialized) {
         for (uint8_t s = 0; s < MAX_STARS; s++) {
@@ -240,7 +550,6 @@ static bool starfield(effect_params_t* params) {
         initialized = true;
     }
     
-    // Update stars
     for (uint8_t s = 0; s < MAX_STARS; s++) {
         stars[s].brightness += stars[s].speed * 0.02;
         if (stars[s].brightness > 1.0) {
@@ -251,7 +560,6 @@ static bool starfield(effect_params_t* params) {
         }
     }
     
-    // Render stars
     for (uint8_t i = led_min; i < led_max; i++) {
         uint8_t brightness = 0;
         
@@ -276,7 +584,7 @@ static bool starfield(effect_params_t* params) {
     return rgb_matrix_check_finished_leds(led_max);
 }
 
-// ===== PLASMA CLOUD EFFECT (Dynamic) =====
+// ===== PLASMA CLOUD EFFECT =====
 static bool plasma_cloud(effect_params_t* params) {
     RGB_MATRIX_USE_LIMITS(led_min, led_max);
     
@@ -321,14 +629,13 @@ static bool keypress_flame(effect_params_t* params) {
             }
             
             float progress = (float)elapsed / flame_duration;
-            float radius = progress * 15; // 3-key radius approx
+            float radius = progress * 15;
             
             int16_t dx = g_led_config.point[i].x - g_led_config.point[flames[f].center].x;
             int16_t dy = g_led_config.point[i].y - g_led_config.point[flames[f].center].y;
             float distance = sqrtf(dx * dx + dy * dy);
             
             if (distance <= radius) {
-                // Orange to yellow gradient based on height
                 float intensity = 1.0 - progress;
                 uint8_t brightness = (uint8_t)(255 * intensity * (1.0 - distance / radius));
                 total_brightness = MIN(255, total_brightness + brightness);
@@ -336,7 +643,6 @@ static bool keypress_flame(effect_params_t* params) {
         }
         
         if (total_brightness > 0) {
-            // Orange-yellow flame color
             uint8_t r = 255;
             uint8_t g = (total_brightness * 200) / 255;
             uint8_t b = (total_brightness * 50) / 255;
@@ -349,7 +655,7 @@ static bool keypress_flame(effect_params_t* params) {
     return rgb_matrix_check_finished_leds(led_max);
 }
 
-// ===== BREATHE CYCLE EFFECT (Dynamic) =====
+// ===== BREATHE CYCLE EFFECT =====
 static bool breathe_cycle(effect_params_t* params) {
     RGB_MATRIX_USE_LIMITS(led_min, led_max);
     
@@ -369,14 +675,13 @@ static bool breathe_cycle(effect_params_t* params) {
     return rgb_matrix_check_finished_leds(led_max);
 }
 
-// ===== RIPPLE POOL EFFECT (Mostly Dynamic) =====
+// ===== RIPPLE POOL EFFECT =====
 static bool ripple_pool(effect_params_t* params) {
     RGB_MATRIX_USE_LIMITS(led_min, led_max);
     
     uint16_t ripple_duration = 1500 + (rgb_matrix_config.speed * 6);
     uint32_t time = timer_elapsed32(0);
     
-    // Auto-spawn ripples occasionally
     if (time - last_auto_ripple > 3000 - (rgb_matrix_config.speed * 10)) {
         last_auto_ripple = time;
         for (uint8_t r = 0; r < MAX_RIPPLES; r++) {
@@ -505,6 +810,57 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
                     flames[f].start_time = timer_read32();
                     flames[f].active = true;
                     flames[f].intensity = 255;
+                    break;
+                }
+            }
+            
+            // New keypress effects
+            for (uint8_t r = 0; r < MAX_RIPPLES_KEY; r++) {
+                if (!key_ripples[r].active) {
+                    key_ripples[r].center = led_index;
+                    key_ripples[r].start_time = timer_read32();
+                    key_ripples[r].active = true;
+                    key_ripples[r].color = rgb_matrix_config.hsv;
+                    break;
+                }
+            }
+            
+            for (uint8_t s = 0; s < MAX_SPARKLES; s++) {
+                if (!sparkles[s].active) {
+                    sparkles[s].center = led_index;
+                    sparkles[s].start_time = timer_read32();
+                    sparkles[s].active = true;
+                    sparkles[s].lifetime = 100;
+                    break;
+                }
+            }
+            
+            for (uint8_t t = 0; t < MAX_TRAILS; t++) {
+                if (!trails[t].active) {
+                    trails[t].center = led_index;
+                    trails[t].start_time = timer_read32();
+                    trails[t].active = true;
+                    trails[t].direction = rand() % 4;
+                    break;
+                }
+            }
+            
+            for (uint8_t s = 0; s < MAX_SONARS; s++) {
+                if (!sonars[s].active) {
+                    sonars[s].center = led_index;
+                    sonars[s].start_time = timer_read32();
+                    sonars[s].active = true;
+                    sonars[s].hue = (rgb_matrix_config.hsv.h + (rand() % 60)) % 255;
+                    break;
+                }
+            }
+            
+            for (uint8_t b = 0; b < MAX_BLOOMS; b++) {
+                if (!blooms[b].active) {
+                    blooms[b].center = led_index;
+                    blooms[b].start_time = timer_read32();
+                    blooms[b].active = true;
+                    blooms[b].color = (HSV){(rgb_matrix_config.hsv.h + 30) % 255, 255, 255};
                     break;
                 }
             }
