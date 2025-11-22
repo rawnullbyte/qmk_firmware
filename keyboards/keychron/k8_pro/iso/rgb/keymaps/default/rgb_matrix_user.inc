@@ -153,90 +153,37 @@ typedef struct {
 
 static key_thunder_t key_thunders[MAX_THUNDERS_KEY];
 
-// ===== RAIN DROPS EFFECT =====
 static bool rain_drops_effect(effect_params_t* params) {
     RGB_MATRIX_USE_LIMITS(led_min, led_max);
     
     HSV hsv = rgb_matrix_config.hsv;
     uint32_t time = timer_elapsed32(0);
     
-    // Spawn new drops
-    if (time - last_rain_spawn > 400 + (255 - rgb_matrix_config.speed) * 2) {
-        last_rain_spawn = time;
-        for (uint8_t i = 0; i < MAX_DROPS; i++) {
-            if (!rain_drops_array[i].active) {
-                // Spawn at top with random X position
-                rain_drops_array[i].x = 40 + (rand() % 144); // Keep away from edges
-                rain_drops_array[i].y = 0;
-                rain_drops_array[i].progress = 0.0f;
-                rain_drops_array[i].speed = 0.3f + (rand() % 40) * 0.01f;
-                rain_drops_array[i].active = true;
-                rain_drops_array[i].size = 8 + (rand() % 6); // Larger circles (8-13 pixels)
-                break;
-            }
-        }
-    }
-    
-    // Update drops
-    for (uint8_t d = 0; d < MAX_DROPS; d++) {
-        if (rain_drops_array[d].active) {
-            rain_drops_array[d].progress += rain_drops_array[d].speed * 0.02f;
-            if (rain_drops_array[d].progress > 1.2f) { // Allow extra time for splash
-                rain_drops_array[d].active = false;
-            }
-        }
-    }
-    
-    // Clear all LEDs first for clean animation
+    // Clear background
     for (uint8_t i = led_min; i < led_max; i++) {
         rgb_matrix_set_color(i, 0, 0, 0);
     }
     
-    // Render drops as animated circles
-    for (uint8_t d = 0; d < MAX_DROPS; d++) {
-        if (!rain_drops_array[d].active) continue;
+    // Create continuous rain streaks
+    for (uint8_t streak = 0; streak < 8; streak++) {
+        uint8_t x_pos = 20 + (streak * 25) + (rand() % 10);
+        uint8_t speed = 3 + (rand() % 3);
         
-        float progress = rain_drops_array[d].progress;
-        uint8_t drop_y = (uint8_t)(progress * 100); // Drop falls to y=100
+        // Calculate current Y position based on time
+        uint32_t streak_time = time + (streak * 200);
+        uint8_t y_pos = (streak_time / speed) % 150;
         
-        // Falling drop (before splash)
-        if (progress <= 1.0f) {
-            // Draw the falling drop as a small circle
-            for (uint8_t i = 0; i < RGB_MATRIX_LED_COUNT; i++) {
-                int16_t dx = g_led_config.point[i].x - rain_drops_array[d].x;
-                int16_t dy = g_led_config.point[i].y - drop_y;
-                float distance = sqrtf(dx * dx + dy * dy);
-                
-                // Small falling drop (3 pixel circle)
-                if (distance < 3.0f) {
-                    float intensity = 1.0f - (distance / 3.0f);
-                    uint8_t brightness = (uint8_t)(200 * intensity);
-                    RGB rgb = hsv_to_rgb(hsv);
-                    rgb_matrix_set_color(i, 
-                        (rgb.r * brightness) / 255,
-                        (rgb.g * brightness) / 255, 
-                        (rgb.b * brightness) / 255);
-                }
-            }
-        }
-        
-        // Splash effect when drop hits bottom
-        if (progress > 0.8f && progress <= 1.2f) {
-            float splash_progress = (progress - 0.8f) / 0.4f; // 0 to 1 during splash
-            float splash_radius = splash_progress * rain_drops_array[d].size;
-            
-            // Draw expanding splash circle
-            for (uint8_t i = 0; i < RGB_MATRIX_LED_COUNT; i++) {
-                int16_t dx = g_led_config.point[i].x - rain_drops_array[d].x;
-                int16_t dy = g_led_config.point[i].y - 100; // Splash at bottom
-                float distance = sqrtf(dx * dx + dy * dy);
-                
-                // Expanding splash ring
-                if (fabs(distance - splash_radius) < 2.5f) {
-                    float ring_intensity = (1.0f - splash_progress) * (1.0f - fabs(distance - splash_radius) / 2.5f);
-                    uint8_t brightness = (uint8_t)(255 * ring_intensity * ring_intensity);
+        // Draw rain streak (3 pixels tall)
+        for (int8_t y_offset = 0; y_offset < 3; y_offset++) {
+            uint8_t current_y = y_pos - y_offset;
+            if (current_y < 128) { // Within visible area
+                // Light up LEDs near this position
+                for (uint8_t i = 0; i < RGB_MATRIX_LED_COUNT; i++) {
+                    int16_t dx = abs(g_led_config.point[i].x - x_pos);
+                    int16_t dy = abs(g_led_config.point[i].y - current_y);
                     
-                    if (brightness > 0) {
+                    if (dx < 2 && dy < 2) {
+                        uint8_t brightness = 200 - (y_offset * 60);
                         RGB rgb = hsv_to_rgb(hsv);
                         rgb_matrix_set_color(i, 
                             (rgb.r * brightness) / 255,
@@ -245,32 +192,25 @@ static bool rain_drops_effect(effect_params_t* params) {
                     }
                 }
             }
+        }
+        
+        // Draw splash when streak hits bottom
+        if (y_pos > 120 && y_pos < 130) {
+            uint8_t splash_progress = (y_pos - 120) * 25;
+            uint8_t splash_radius = splash_progress / 30;
             
-            // Add splash droplets flying up
-            if (splash_progress < 0.3f) {
-                for (uint8_t droplet = 0; droplet < 3; droplet++) {
-                    float angle = (droplet * 120) * (M_PI / 180.0f); // 120 degree spacing
-                    float droplet_x = rain_drops_array[d].x + cos(angle) * splash_radius * 0.7f;
-                    float droplet_y = 100 - sin(angle) * splash_radius * 0.5f; // Fly upward
-                    
-                    for (uint8_t i = 0; i < RGB_MATRIX_LED_COUNT; i++) {
-                        int16_t dx = g_led_config.point[i].x - droplet_x;
-                        int16_t dy = g_led_config.point[i].y - droplet_y;
-                        float distance = sqrtf(dx * dx + dy * dy);
-                        
-                        if (distance < 2.0f) {
-                            float intensity = 1.0f - (distance / 2.0f);
-                            uint8_t brightness = (uint8_t)(180 * intensity * (1.0f - splash_progress * 3.0f));
-                            
-                            if (brightness > 0) {
-                                RGB rgb = hsv_to_rgb(hsv);
-                                rgb_matrix_set_color(i, 
-                                    (rgb.r * brightness) / 255,
-                                    (rgb.g * brightness) / 255, 
-                                    (rgb.b * brightness) / 255);
-                            }
-                        }
-                    }
+            for (uint8_t i = 0; i < RGB_MATRIX_LED_COUNT; i++) {
+                int16_t dx = abs(g_led_config.point[i].x - x_pos);
+                int16_t dy = abs(g_led_config.point[i].y - 125);
+                float distance = sqrtf(dx * dx + dy * dy);
+                
+                if (distance < splash_radius) {
+                    uint8_t brightness = (uint8_t)(200 * (1.0f - distance / splash_radius));
+                    RGB rgb = hsv_to_rgb(hsv);
+                    rgb_matrix_set_color(i, 
+                        (rgb.r * brightness) / 255,
+                        (rgb.g * brightness) / 255, 
+                        (rgb.b * brightness) / 255);
                 }
             }
         }
