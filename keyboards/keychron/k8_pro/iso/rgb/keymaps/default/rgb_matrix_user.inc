@@ -1,7 +1,7 @@
 // !!! DO NOT ADD #pragma once !!! //
 
 RGB_MATRIX_EFFECT(keypress_splash)
-RGB_MATRIX_EFFECT(rain_drops)
+RGB_MATRIX_EFFECT(rain_drops_effect)
 RGB_MATRIX_EFFECT(flame_breath)
 RGB_MATRIX_EFFECT(cosmic_swirl)
 RGB_MATRIX_EFFECT(pulse_wave)
@@ -39,7 +39,7 @@ typedef struct {
     HSV color;
 } rain_drop_t;
 
-static rain_drop_t rain_drops[MAX_DROPS];
+static rain_drop_t rain_drops_array[MAX_DROPS];
 static uint32_t last_rain_spawn = 0;
 
 // Flame breath effect
@@ -89,7 +89,7 @@ static ripple_t ripples[MAX_RIPPLES];
 static uint32_t last_auto_ripple = 0;
 
 // ===== RAIN DROPS EFFECT =====
-static bool rain_drops(effect_params_t* params) {
+static bool rain_drops_effect(effect_params_t* params) {
     RGB_MATRIX_USE_LIMITS(led_min, led_max);
     
     HSV hsv = rgb_matrix_config.hsv;
@@ -99,12 +99,12 @@ static bool rain_drops(effect_params_t* params) {
     if (time - last_rain_spawn > 200 + (255 - rgb_matrix_config.speed) * 2) {
         last_rain_spawn = time;
         for (uint8_t i = 0; i < MAX_DROPS; i++) {
-            if (!rain_drops[i].active) {
-                rain_drops[i].x = rand() % 224;
-                rain_drops[i].y = 0;
-                rain_drops[i].speed = 0.5 + (rand() % 100) * 0.01;
-                rain_drops[i].active = true;
-                rain_drops[i].color = (HSV){hsv.h + (rand() % 30) - 15, 200 + rand() % 55, hsv.v};
+            if (!rain_drops_array[i].active) {
+                rain_drops_array[i].x = rand() % 224;
+                rain_drops_array[i].y = 0;
+                rain_drops_array[i].speed = 0.5 + (rand() % 100) * 0.01;
+                rain_drops_array[i].active = true;
+                rain_drops_array[i].color = (HSV){hsv.h + (rand() % 30) - 15, 200 + rand() % 55, hsv.v};
                 break;
             }
         }
@@ -115,18 +115,18 @@ static bool rain_drops(effect_params_t* params) {
         uint8_t brightness = 0;
         
         for (uint8_t d = 0; d < MAX_DROPS; d++) {
-            if (!rain_drops[d].active) continue;
+            if (!rain_drops_array[d].active) continue;
             
             // Update drop position
-            rain_drops[d].y += rain_drops[d].speed;
-            if (rain_drops[d].y > 128) {
-                rain_drops[d].active = false;
+            rain_drops_array[d].y += rain_drops_array[d].speed;
+            if (rain_drops_array[d].y > 128) {
+                rain_drops_array[d].active = false;
                 continue;
             }
             
             // Calculate distance to drop
-            int16_t dx = abs(g_led_config.point[i].x - rain_drops[d].x);
-            int16_t dy = abs(g_led_config.point[i].y - (int)rain_drops[d].y);
+            int16_t dx = abs(g_led_config.point[i].x - rain_drops_array[d].x);
+            int16_t dy = abs(g_led_config.point[i].y - (int)rain_drops_array[d].y);
             float distance = sqrtf(dx * dx + dy * dy);
             
             if (distance < 8) {
@@ -136,7 +136,7 @@ static bool rain_drops(effect_params_t* params) {
         }
         
         if (brightness > 0) {
-            RGB rgb = hsv_to_rgb(rain_drops[0].color); // Use first drop's color
+            RGB rgb = hsv_to_rgb(rain_drops_array[0].color); // Use first drop's color
             rgb_matrix_set_color(i, 
                 (rgb.r * brightness) / 255,
                 (rgb.g * brightness) / 255, 
@@ -180,7 +180,6 @@ static bool cosmic_swirl(effect_params_t* params) {
     RGB_MATRIX_USE_LIMITS(led_min, led_max);
     
     cosmic_angle += 0.03;
-    float scale = 0.1 + (rgb_matrix_config.speed / 255.0) * 0.2;
     
     for (uint8_t i = led_min; i < led_max; i++) {
         float x = (g_led_config.point[i].x - 112) / 112.0;
@@ -375,9 +374,9 @@ static bool ripple_pool(effect_params_t* params) {
     RGB_MATRIX_USE_LIMITS(led_min, led_max);
     
     uint16_t ripple_duration = 1500 + (rgb_matrix_config.speed * 6);
+    uint32_t time = timer_elapsed32(0);
     
     // Auto-spawn ripples occasionally
-    uint32_t time = timer_elapsed32(0);
     if (time - last_auto_ripple > 3000 - (rgb_matrix_config.speed * 10)) {
         last_auto_ripple = time;
         for (uint8_t r = 0; r < MAX_RIPPLES; r++) {
