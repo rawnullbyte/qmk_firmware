@@ -348,8 +348,6 @@ static bool keypress_flame(effect_params_t* params) {
         for (uint8_t f = 0; f < MAX_FLAMES; f++) {
             if (!flames[f].active) continue;
             
-            uint32_t elapsed = current_time - flames[f].start_time;
-            
             // Update flicker for active flames
             if (current_time - flames[f].last_update > 50) {
                 flames[f].flicker_offset = rand() % 30;
@@ -506,11 +504,6 @@ static bool keypress_thunder(effect_params_t* params) {
             
             // Thunder flickers
             if ((elapsed < 80) || (elapsed > 120 && elapsed < 150) || (elapsed > 200 && elapsed < 220)) {
-                int16_t dx = g_led_config.point[i].x - key_thunders[t].start_x;
-                int16_t dy = g_led_config.point[i].y - key_thunders[t].start_y;
-                int16_t end_dx = g_led_config.point[i].x - key_thunders[t].end_x;
-                int16_t end_dy = g_led_config.point[i].y - key_thunders[t].end_y;
-                
                 // Check if LED is near the thunder line
                 float distance_to_line = fabs((key_thunders[t].end_x - key_thunders[t].start_x) * (key_thunders[t].start_y - g_led_config.point[i].y) - 
                                             (key_thunders[t].start_x - g_led_config.point[i].x) * (key_thunders[t].end_y - key_thunders[t].start_y)) / 
@@ -532,9 +525,6 @@ static bool keypress_thunder(effect_params_t* params) {
     
     return rgb_matrix_check_finished_leds(led_max);
 }
-
-// [Keep all the other existing effects exactly as they were: cosmic_swirl, pulse_wave, plasma_cloud, 
-// keypress_ripple, keypress_sparkle, keypress_trail, keypress_sonar, and the original keypress_splash]
 
 // ===== COSMIC SWIRL EFFECT =====
 static bool cosmic_swirl(effect_params_t* params) {
